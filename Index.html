@@ -742,7 +742,7 @@ function logAuditAnon(usuario,msg){
 ============================================================ */
 const PL={
   dash:'Panel General',asal:'Salones & Grados',apri:'Primaria (1°-5°)',abac:'Bachillerato (6°-11°)',
-  aprf:'Profesores',amat:'Materias & Periodos',anot:'Gestión de Notas',areh:'Rehabilitaciones',
+  aprf:'Profesores',amat:'Materias & Periodos',anot:'Gestión de Notas',areh:'Recuperaciones',
   afec:'Control de Fechas',ablk:'Usuarios Bloqueados',aaud:'Auditoría',aexp:'Exportar',ahist:'Historial Estudiantes',
   aexc:'Excusas (Admin)',avcl:'Clases Virtuales (Admin)',
   ph:'Mi Panel',pnot:'Ingresar Notas',past:'Asistencias',pvir:'Clases Virtuales',ptar:'Tareas Recibidas',prec:'Recuperaciones',
@@ -869,7 +869,7 @@ function navItems(){
     {s:'Académico'},{id:'asal',ic:'🏫',lb:'Salones & Grados'},
     {id:'apri',ic:'📚',lb:'Primaria (1°-5°)'},{id:'abac',ic:'🎓',lb:'Bachillerato (6°-11°)'},
     {id:'aprf',ic:'👩‍🏫',lb:'Profesores'},{id:'amat',ic:'📖',lb:'Materias & Periodos'},
-    {s:'Notas'},{id:'anot',ic:'📝',lb:'Gestión de Notas'},{id:'areh',ic:'🔄',lb:'Rehabilitaciones'},
+    {s:'Notas'},{id:'anot',ic:'📝',lb:'Gestión de Notas'},{id:'areh',ic:'🔄',lb:'Recuperaciones'},
     {s:'Comunicación'},{id:'aexc',ic:'✉️',lb:'Excusas'},{id:'avcl',ic:'💻',lb:'Clases Virtuales'},
     {s:'Sistema'},{id:'afec',ic:'📅',lb:'Control de Fechas'},
     {id:'ablk',ic:'🔒',lb:'Usuarios Bloqueados'},
@@ -1504,12 +1504,12 @@ function saveDisc(eid,v){
 /* ============================================================
    REHAB
 ============================================================ */
-function pgAReh(){return`<div class="ph"><h2>Rehabilitaciones</h2></div><div id="arB"></div>`;}
+function pgAReh(){return`<div class="ph"><h2>Recuperaciones</h2></div><div id="arB"></div>`;}
 function initAReh(){
   const el=gi('arB');if(!el)return;
   if(!DB.ext.on){el.innerHTML=`<div class="al aly">⚠️ Activa el Periodo Extraordinario en <strong>Control de Fechas</strong>.</div>`;return;}
   const list=DB.ests.filter(e=>{const mp=matPerd(e.id);return mp.length>=1&&mp.length<=2;});
-  if(!list.length){el.innerHTML=`<div class="al alg">✅ Sin estudiantes en rehabilitación actualmente.</div>`;return;}
+  if(!list.length){el.innerHTML=`<div class="al alg">✅ Sin estudiantes en recuperación actualmente.</div>`;return;}
   /* Also show recovery submissions per student */
   el.innerHTML=`<div class="al aly">📅 Periodo Extraordinario: <strong>${DB.ext.s} → ${DB.ext.e}</strong></div>
   <div class="card"><div class="chd"><span class="cti">⚠️ Estudiantes Elegibles (${list.length})</span></div>
@@ -3639,4 +3639,3 @@ dbLoad();
 </script>
 </body>
 </html>
-

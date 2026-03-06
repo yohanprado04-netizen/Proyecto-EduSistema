@@ -498,9 +498,22 @@ function scCol(n){n=+n;if(n===0)return'#a0aec0';if(n<3)return'var(--red)';if(n<4
 function today(){return new Date().toISOString().split('T')[0];}
 function notasOk(per){
   if(CU?.role==='admin') return true;
-  /* Extraordinary period open → notes always open for professors */
-  if(CU?.role==='profe'&&DB.ext?.on) return true;
   const t=today();
+  /* Extraordinary period active → only open the period mapped as extPer */
+  if(CU?.role==='profe'&&DB.ext?.on){
+    if(per){
+      /* Find if this period is the ext-mapped target for ANY period config */
+      const isExtTarget=Object.values(DB.drPer||{}).some(dp=>dp.extPer===per);
+      if(isExtTarget) return true;
+      /* If per has its own range that's still open, also allow */
+      const dp=DB.drPer?.[per];
+      if(dp?.s&&dp?.e) return t>=dp.s&&t<=dp.e;
+      /* Not the ext target and no open range → blocked */
+      return false;
+    }
+    /* No period specified → allow (backward compat for places that don't pass per) */
+    return true;
+  }
   /* Per-period range check */
   if(per&&DB.drPer?.[per]){
     const{s,e}=DB.drPer[per];
@@ -729,7 +742,7 @@ function logAuditAnon(usuario,msg){
 ============================================================ */
 const PL={
   dash:'Panel General',asal:'Salones & Grados',apri:'Primaria (1°-5°)',abac:'Bachillerato (6°-11°)',
-  aprf:'Profesores',amat:'Materias & Periodos',anot:'Gestión de Notas',areh:'Recuperaciones',
+  aprf:'Profesores',amat:'Materias & Periodos',anot:'Gestión de Notas',areh:'Rehabilitaciones',
   afec:'Control de Fechas',ablk:'Usuarios Bloqueados',aaud:'Auditoría',aexp:'Exportar',ahist:'Historial Estudiantes',
   aexc:'Excusas (Admin)',avcl:'Clases Virtuales (Admin)',
   ph:'Mi Panel',pnot:'Ingresar Notas',past:'Asistencias',pvir:'Clases Virtuales',ptar:'Tareas Recibidas',prec:'Recuperaciones',
@@ -856,7 +869,7 @@ function navItems(){
     {s:'Académico'},{id:'asal',ic:'🏫',lb:'Salones & Grados'},
     {id:'apri',ic:'📚',lb:'Primaria (1°-5°)'},{id:'abac',ic:'🎓',lb:'Bachillerato (6°-11°)'},
     {id:'aprf',ic:'👩‍🏫',lb:'Profesores'},{id:'amat',ic:'📖',lb:'Materias & Periodos'},
-    {s:'Notas'},{id:'anot',ic:'📝',lb:'Gestión de Notas'},{id:'areh',ic:'🔄',lb:'Recuperaciones'},
+    {s:'Notas'},{id:'anot',ic:'📝',lb:'Gestión de Notas'},{id:'areh',ic:'🔄',lb:'Rehabilitaciones'},
     {s:'Comunicación'},{id:'aexc',ic:'✉️',lb:'Excusas'},{id:'avcl',ic:'💻',lb:'Clases Virtuales'},
     {s:'Sistema'},{id:'afec',ic:'📅',lb:'Control de Fechas'},
     {id:'ablk',ic:'🔒',lb:'Usuarios Bloqueados'},
@@ -1491,12 +1504,12 @@ function saveDisc(eid,v){
 /* ============================================================
    REHAB
 ============================================================ */
-function pgAReh(){return`<div class="ph"><h2>Recuperaciones</h2></div><div id="arB"></div>`;}
+function pgAReh(){return`<div class="ph"><h2>Rehabilitaciones</h2></div><div id="arB"></div>`;}
 function initAReh(){
   const el=gi('arB');if(!el)return;
   if(!DB.ext.on){el.innerHTML=`<div class="al aly">⚠️ Activa el Periodo Extraordinario en <strong>Control de Fechas</strong>.</div>`;return;}
   const list=DB.ests.filter(e=>{const mp=matPerd(e.id);return mp.length>=1&&mp.length<=2;});
-  if(!list.length){el.innerHTML=`<div class="al alg">✅ Sin estudiantes en recuperaciones actualmente.</div>`;return;}
+  if(!list.length){el.innerHTML=`<div class="al alg">✅ Sin estudiantes en rehabilitación actualmente.</div>`;return;}
   /* Also show recovery submissions per student */
   el.innerHTML=`<div class="al aly">📅 Periodo Extraordinario: <strong>${DB.ext.s} → ${DB.ext.e}</strong></div>
   <div class="card"><div class="chd"><span class="cti">⚠️ Estudiantes Elegibles (${list.length})</span></div>
@@ -1981,9 +1994,27 @@ function pgPH(){
 function pgPNot(){
   const p=CU;
   const sO=(p.salones||[]).map(s=>`<option value="${s}">${s}</option>`).join('');
-  const pO=DB.pers.map(per=>`<option value="${per}">${per}</option>`).join('');
+  const pO=DB.pers.map(per=>{
+    const ok=notasOk(per);
+    return`<option value="${per}" ${!ok?'style="color:#a0aec0"':''}>
+      ${ok?'✓':'🔒'} ${per}${!ok?' (cerrado)':''}
+    </option>`;
+  }).join('');
+  /* Banner describing current state */
+  const extTarget=DB.ext?.on
+    ?Object.entries(DB.drPer||{}).find(([,dp])=>dp.extPer)?.[1]?.extPer||null
+    :null;
+  const banner=DB.ext?.on
+    ?`<div class="al aly" style="margin-bottom:14px">
+        🔄 Periodo Extraordinario activo.
+        ${extTarget
+          ?`Solo <strong>${extTarget}</strong> está abierto para ingreso de notas de recuperación. Los demás periodos están cerrados.`
+          :'Configura el campo "Periodo Ext." en Control de Fechas para habilitar el periodo de recuperación.'}
+      </div>`
+    :'';
   return`<div class="ph"><h2>Ingresar Notas</h2><button class="btn xs bg" onclick="showHelp('pnot')">❓ Ayuda</button></div>
   <div id="pnLockBanner"></div>
+  ${banner}
   <div class="card">
     <div class="al alb" style="margin-bottom:14px">
       <div>ℹ️ <strong>Sistema tripartita:</strong> Aptitud 60% + Actitud 20% + Responsabilidad 20% = Definitiva.<br>
@@ -3608,3 +3639,4 @@ dbLoad();
 </script>
 </body>
 </html>
+

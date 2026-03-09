@@ -374,6 +374,8 @@ function dbLoad(){
     DB.histRecs=DB.histRecs||[]; /* Archived recovery submissions per closed period */
     DB.histPlanes=DB.histPlanes||[]; /* Archived plans per closed period */
     DB.estHist=DB.estHist||DB.ests.map(e=>({id:e.id,nombre:e.nombre,ti:e.ti||'',salon:e.salon||'',registrado:e.registrado||'—',activo:true}));
+    /* Migrate salons without mats field */
+    DB.sals.forEach(s=>{if(!Array.isArray(s.mats)) s.mats=[];});
     dbSave();
   } else dbInit();
   /* Migrate plaintext passwords to SHA-256 hash on first load */
@@ -429,8 +431,12 @@ function cicloOf(sname){return DB.sals.find(s=>s.nombre===sname)?.ciclo||'bachil
 function getMats(eid){
   const e=DB.ests.find(x=>x.id===eid);
   if(!e) return[...DB.mB];
+  const sal=DB.sals.find(s=>s.nombre===e.salon);
+  /* If salon has its own custom subject list, use it (works for both ciclos) */
+  if(sal?.mats&&sal.mats.length) return[...sal.mats];
+  /* Fallback: ciclo-wide defaults */
   if(cicloOf(e.salon)==='primaria') return[...DB.mP];
-  /* Bach: collect materias assigned to this specific salon */
+  /* Bach: collect materias assigned to this specific salon via profs */
   const salonMats=getSalonMats(e.salon);
   return salonMats.length?salonMats:[...DB.mB];
 }
@@ -451,6 +457,15 @@ function getSalonMats(salon){
 /* Get materias a specific professor teaches in a specific salon */
 function getProfMatsSalon(profId,salon){
   const p=DB.profs.find(x=>x.id===profId);if(!p)return[];
+  /* Check if salon has its own custom subjects */
+  const sal=DB.sals.find(s=>s.nombre===salon);
+  if(sal?.mats&&sal.mats.length){
+    if(p.ciclo==='primaria') return[...sal.mats];
+    /* Bach: intersect prof's salonMaterias with salon's mats */
+    const sm=(p.salonMaterias||{})[salon]||[];
+    const filtered=sm.filter(m=>sal.mats.includes(m));
+    return filtered.length?filtered:sm;
+  }
   if(p.ciclo==='primaria') return getMats(DB.ests.find(e=>e.salon===salon)?.id||'');
   const sm=p.salonMaterias||{};
   if(sm[salon]&&sm[salon].length) return sm[salon];
@@ -742,7 +757,7 @@ function logAuditAnon(usuario,msg){
 ============================================================ */
 const PL={
   dash:'Panel General',asal:'Salones & Grados',apri:'Primaria (1°-5°)',abac:'Bachillerato (6°-11°)',
-  aprf:'Profesores',amat:'Materias & Periodos',anot:'Gestión de Notas',areh:'Recuperaciones',
+  aprf:'Profesores',amat:'Materias & Periodos',anot:'Gestión de Notas',areh:'Habilitación',
   afec:'Control de Fechas',ablk:'Usuarios Bloqueados',aaud:'Auditoría',aexp:'Exportar',ahist:'Historial Estudiantes',
   aexc:'Excusas (Admin)',avcl:'Clases Virtuales (Admin)',
   ph:'Mi Panel',pnot:'Ingresar Notas',past:'Asistencias',pvir:'Clases Virtuales',ptar:'Tareas Recibidas',prec:'Recuperaciones',
@@ -869,7 +884,7 @@ function navItems(){
     {s:'Académico'},{id:'asal',ic:'🏫',lb:'Salones & Grados'},
     {id:'apri',ic:'📚',lb:'Primaria (1°-5°)'},{id:'abac',ic:'🎓',lb:'Bachillerato (6°-11°)'},
     {id:'aprf',ic:'👩‍🏫',lb:'Profesores'},{id:'amat',ic:'📖',lb:'Materias & Periodos'},
-    {s:'Notas'},{id:'anot',ic:'📝',lb:'Gestión de Notas'},{id:'areh',ic:'🔄',lb:'Recuperaciones'},
+    {s:'Notas'},{id:'anot',ic:'📝',lb:'Gestión de Notas'},{id:'areh',ic:'🔄',lb:'Habilitación'},
     {s:'Comunicación'},{id:'aexc',ic:'✉️',lb:'Excusas'},{id:'avcl',ic:'💻',lb:'Clases Virtuales'},
     {s:'Sistema'},{id:'afec',ic:'📅',lb:'Control de Fechas'},
     {id:'ablk',ic:'🔒',lb:'Usuarios Bloqueados'},
@@ -1008,22 +1023,40 @@ function renderSals(){
   ['primaria','bachillerato'].forEach(c=>{
     const el=gi(c==='primaria'?'slP':'slB');if(!el) return;
     const list=DB.sals.filter(s=>s.ciclo===c);
-    el.innerHTML=list.length
-      ?`<div style="display:flex;flex-wrap:wrap;gap:10px">${list.map(s=>`
-          <div style="display:flex;align-items:center;gap:8px;background:var(--bg2);padding:10px 14px;border-radius:10px;border:1px solid var(--bd)">
-            <strong style="font-size:14px">${s.nombre}</strong>
+    if(!list.length){el.innerHTML='<div class="mty" style="padding:20px"><div class="ei">🏫</div><p>Sin salones</p></div>';return;}
+    el.innerHTML=list.map(s=>{
+      const nMats=s.mats&&s.mats.length;
+      const dfMats=c==='primaria'?DB.mP:DB.mB;
+      const matsLabel=nMats
+        ?`<span class="bdg bgr" style="font-size:10px">🎯 ${s.mats.length} materias propias</span>`
+        :`<span class="bdg bgy" style="font-size:10px">${dfMats.length} materias (${c==='primaria'?'global primaria':'global bach.'})</span>`;
+      const matsList=nMats?s.mats:dfMats;
+      return`<div style="background:var(--bg2);border-radius:10px;border:1px solid var(--bd);padding:12px 14px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <strong style="font-size:15px">${s.nombre}</strong>
             <span class="bdg bgy">${ebySalon(s.nombre).length} est.</span>
+            ${matsLabel}
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="btn xs bg" onclick="editSalMats('${s.nombre}')">🎯 Materias</button>
             <button class="btn xs bd" onclick="delSal('${s.nombre}')">🗑</button>
-          </div>`).join('')}</div>`
-      :'<div class="mty" style="padding:20px"><div class="ei">🏫</div><p>Sin salones</p></div>';
+          </div>
+        </div>
+        <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px">
+          ${matsList.map(m=>`<span style="font-size:11px;padding:2px 7px;background:#fff;border:1px solid var(--bd);border-radius:5px">${m}</span>`).join('')}
+        </div>
+      </div>`;
+    }).join('');
   });
 }
 function addSal(){
   const n=gi('nsn').value.trim().toUpperCase(),c=gi('nsc').value;
   if(!n){sw('error','Nombre obligatorio');return;}
   if(DB.sals.find(s=>s.nombre===n)){sw('error','Ya existe');return;}
-  DB.sals.push({nombre:n,ciclo:c});dbSave();gi('nsn').value='';renderSals();
-  sw('success',`Salón ${n} creado`,'',1400);
+  DB.sals.push({nombre:n,ciclo:c,mats:[]});
+  dbSave();gi('nsn').value='';renderSals();
+  sw('success',`Salón ${n} creado`,'Puedes asignar materias con el botón 🎯.',2000);
 }
 function delSal(n){
   Swal.fire({title:'¿Eliminar salón?',text:n,icon:'warning',showCancelButton:true,
@@ -1034,6 +1067,82 @@ function delSal(n){
     DB.profs.forEach(p=>{if(p.salones)p.salones=p.salones.filter(s=>s!==n);});
     dbSave();renderSals();
   });
+}
+
+/* Assign/edit custom subject list for a salon */
+function editSalMats(sname){
+  const sal=DB.sals.find(s=>s.nombre===sname);if(!sal)return;
+  const ciclo=sal.ciclo;
+  const globalMats=ciclo==='primaria'?DB.mP:DB.mB;
+  const current=sal.mats&&sal.mats.length?[...sal.mats]:[...globalMats];
+
+  /* Build checkbox list from global defaults + any custom already added */
+  const allMats=[...new Set([...globalMats,...current])];
+
+  const rows=allMats.map(m=>`
+    <label style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bg2);
+      border-radius:7px;border:1px solid var(--bd);cursor:pointer;font-size:13px">
+      <input type="checkbox" class="smck" value="${m}" ${current.includes(m)?'checked':''}>
+      <span>${m}</span>
+    </label>`).join('');
+
+  Swal.fire({
+    title:`🎯 Materias del Salón ${sname}`,
+    width:600,
+    html:`<div style="text-align:left;font-family:var(--fn)">
+      <div class="al alb" style="margin-bottom:12px;font-size:12px">
+        Selecciona las materias que existen en este salón. Si no marcas ninguna, se usarán las materias globales del ciclo.
+        <br>Puedes agregar materias personalizadas en el campo de abajo.
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px">${rows}</div>
+      <div style="display:flex;gap:8px;align-items:center;padding:10px;background:#f7fafc;border-radius:8px;border:1px solid var(--bd)">
+        <input id="newMat" placeholder="Nueva materia personalizada..."
+          style="flex:1;padding:7px 10px;border:1.5px solid var(--bd);border-radius:7px;font-size:13px;outline:none">
+        <button type="button" class="btn xs bn" onclick="addCustomMatRow()">➕ Agregar</button>
+      </div>
+      <div id="customMatsAdded"></div>
+    </div>`,
+    showCancelButton:true,
+    confirmButtonText:'Guardar Materias',
+    cancelButtonText:'Cancelar',
+    didOpen:()=>{
+      /* Allow Enter to add custom mat */
+      gi('newMat').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();addCustomMatRow();}});
+    },
+    preConfirm:()=>{
+      const checked=[...document.querySelectorAll('.smck:checked')].map(c=>c.value);
+      return checked;
+    }
+  }).then(r=>{
+    if(!r.isConfirmed) return;
+    const chosen=r.value;
+    sal.mats=chosen; /* empty array = use global */
+    /* Patch existing student notes to include new mats */
+    DB.ests.filter(e=>e.salon===sname).forEach(e=>{
+      syncN(e.id);
+      DB.pers.forEach(per=>{
+        if(!DB.notas[e.id][per]) DB.notas[e.id][per]={};
+        chosen.forEach(m=>{
+          if(!DB.notas[e.id][per][m]) DB.notas[e.id][per][m]={a:0,c:0,r:0};
+        });
+      });
+    });
+    dbSave();renderSals();
+    sw('success',`Materias de ${sname} actualizadas`,
+      chosen.length?`${chosen.length} materias asignadas`:'Se usarán las materias globales del ciclo.',2000);
+  });
+}
+/* Called from inside Swal to add a custom subject row */
+function addCustomMatRow(){
+  const inp=gi('newMat');const v=inp.value.trim();if(!v) return;
+  /* Check not already present */
+  if([...document.querySelectorAll('.smck')].some(c=>c.value===v)){inp.value='';return;}
+  const d=gi('customMatsAdded');
+  const lbl=document.createElement('label');
+  lbl.style.cssText='display:flex;align-items:center;gap:8px;padding:6px 10px;background:#ebf8ff;border-radius:7px;border:1px solid #90cdf4;cursor:pointer;font-size:13px;margin-top:6px';
+  lbl.innerHTML=`<input type="checkbox" class="smck" value="${v}" checked><span>${v}</span> <span style="font-size:10px;color:#2b6cb0">(nueva)</span>`;
+  d.appendChild(lbl);
+  inp.value='';inp.focus();
 }
 
 /* ============================================================
@@ -1238,10 +1347,14 @@ function openSalonMaterias(pid,cb){
   if(!salones.length){if(cb)cb();return;}
   const rows=salones.map(s=>{
     const cur=(p.salonMaterias||{})[s]||[];
+    const salObj=DB.sals.find(x=>x.nombre===s);
+    const availMats=(salObj?.mats&&salObj.mats.length)?salObj.mats:DB.mB;
     return`<div style="margin-bottom:12px;padding:10px 12px;background:var(--bg2);border-radius:8px;border:1px solid var(--bd)">
-      <div style="font-size:12px;font-weight:800;color:var(--nv);margin-bottom:7px">📍 ${s}</div>
+      <div style="font-size:12px;font-weight:800;color:var(--nv);margin-bottom:7px">📍 ${s}
+        ${salObj?.mats?.length?`<span style="font-size:10px;font-weight:400;color:var(--sl2);margin-left:6px">(${salObj.mats.length} materias del salón)</span>`:''}
+      </div>
       <div style="display:flex;flex-wrap:wrap;gap:6px">
-        ${DB.mB.map(m=>`<label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;
+        ${availMats.map(m=>`<label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;
           padding:4px 8px;background:#fff;border-radius:6px;border:1px solid var(--bd)">
           <input type="checkbox" class="sm_${s.replace(/\s/g,'_')}" value="${m}" ${cur.includes(m)?'checked':''}>
           ${m}</label>`).join('')}
@@ -1504,12 +1617,12 @@ function saveDisc(eid,v){
 /* ============================================================
    REHAB
 ============================================================ */
-function pgAReh(){return`<div class="ph"><h2>Recuperaciones</h2></div><div id="arB"></div>`;}
+function pgAReh(){return`<div class="ph"><h2>Habilitación</h2></div><div id="arB"></div>`;}
 function initAReh(){
   const el=gi('arB');if(!el)return;
   if(!DB.ext.on){el.innerHTML=`<div class="al aly">⚠️ Activa el Periodo Extraordinario en <strong>Control de Fechas</strong>.</div>`;return;}
   const list=DB.ests.filter(e=>{const mp=matPerd(e.id);return mp.length>=1&&mp.length<=2;});
-  if(!list.length){el.innerHTML=`<div class="al alg">✅ Sin estudiantes en recuperación actualmente.</div>`;return;}
+  if(!list.length){el.innerHTML=`<div class="al alg">✅ Sin estudiantes en habilitación actualmente.</div>`;return;}
   /* Also show recovery submissions per student */
   el.innerHTML=`<div class="al aly">📅 Periodo Extraordinario: <strong>${DB.ext.s} → ${DB.ext.e}</strong></div>
   <div class="card"><div class="chd"><span class="cti">⚠️ Estudiantes Elegibles (${list.length})</span></div>
@@ -3483,6 +3596,9 @@ function dlBoletin(estId,perFilter,anno){
   const pers2render=isTodos?DB.pers:DB.pers.filter(p=>p===decodeURIComponent(perFilter));
   if(!pers2render.length){sw('error','Periodo no encontrado');return;}
   const mats=getMats(estId);
+  const salObj=DB.sals.find(s=>s.nombre===e.salon);
+  const matsSource=salObj?.mats?.length?`Materias del salón ${e.salon}`
+    :(cicloOf(e.salon)==='primaria'?'Materias globales primaria':'Materias globales bachillerato');
   const cicloLabel=cicloOf(e.salon)==='primaria'?'Primaria (1°-5°)':'Bachillerato (6°-11°)';
 
   /* Check data */
@@ -3584,6 +3700,7 @@ function dlBoletin(estId,perFilter,anno){
         <div style="font-size:12px;line-height:1.8"><strong>Nombre:</strong> ${e.nombre}</div>
         <div style="font-size:12px;line-height:1.8"><strong>T.I.:</strong> ${e.ti||'No registrado'}</div>
         <div style="font-size:12px;line-height:1.8"><strong>Salón:</strong> ${e.salon||'Sin salón'} &nbsp;·&nbsp; <strong>Ciclo:</strong> ${cicloLabel}</div>
+        <div style="font-size:11px;color:#4a5568;line-height:1.6"><strong>Plan de estudios:</strong> ${matsSource} — ${mats.join(', ')}</div>
       </div>
       <div>
         ${isTodos
